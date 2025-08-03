@@ -1,6 +1,7 @@
-import os, asyncio
+import os, asyncio, time
 
 from autogen_agentchat.agents import AssistantAgent
+from autogen_agentchat.messages import TextMessage
 from autogen_agentchat.conditions import TextMentionTermination
 from autogen_agentchat.teams import RoundRobinGroupChat
 from autogen_agentchat.ui import Console
@@ -20,11 +21,14 @@ model_client = AzureOpenAIChatCompletionClient(
 )
 
 async def main() -> None:
+    start_time = time.time()
+    
     server_params = StdioServerParams(
         command="npx",
         args=[
             "@playwright/mcp@latest",
-            "--headless",
+            "--browser",
+            "chromium"
         ],
         read_timeout_seconds=60,
     )
@@ -37,19 +41,48 @@ async def main() -> None:
         agent = AssistantAgent(
             name="Assistant",
             model_client=model_client,
-            tools=tools,  # type: ignore
+            description="あなたはMCPを使用して、ウェブサイトの情報を取得したり操作を行うエージェントです。",
+            tools=tools,
+        )
+
+        # シングルエージェントでタスクを実行
+        user_message = TextMessage(
+            content="""
+            以下のタスクを正確に実行してください:
+            1. Qiitaにアクセス
+            2. メールアドレス=<your email>、パスワード=<your password>でログイン
+            3. 画面右上の「投稿する」をクリックして、「記事を新規作成」をクリック
+            4. タイトルに「あああああ」を入力
+            5. 本文に「いいいいい」を入力
+            6. 「下書き保存」をクリック
+            7. 保存が完了したら、トップ画面に戻って、「トレンド」タブをクリック
+            8. トレンドのトップの記事を開いて、いいねを押してください。
+            9. 最後にユーザーアイコンをクリックして、ログアウトしてください。
+            """,
+            source="user"
         )
 
         termination = TextMentionTermination("TERMINATE")
         team = RoundRobinGroupChat([agent], termination_condition=termination)
         await Console(
             team.run_stream(
-                task="「https://weather.yahoo.co.jp/weather/jp」を開いて、明日の東京の天気を調べて報告する"
+                task=user_message.content,
             )
         )
+        
+        # 処理時間を計算
+        end_time = time.time()
+        elapsed_time = end_time - start_time
+        
+        # 最終的なトークン使用量を取得
+        final_usage = model_client.total_usage()
+        
+        print(f"\n=== 実行ログ ===")
+        print(f"処理時間: {elapsed_time:.2f}秒")
+        print(f"合計消費トークン数: {final_usage.prompt_tokens + final_usage.completion_tokens}")
+        print(f"  - プロンプトトークン: {final_usage.prompt_tokens}")
+        print(f"  - 補完トークン: {final_usage.completion_tokens}")
 
 
-# must use asyncio.run to run the main function
-# because main() is an async function
 if __name__ == "__main__":
     asyncio.run(main())
